@@ -86,7 +86,7 @@ class Project:
         Start the project.
         """
         telemetry.start()
-        self.project_manager = ProductOwner(self)
+        self.project_manager = ProductOwner(self)#通过ask user 完成了 description和summary
         self.project_manager.get_project_description()
 
         self.project_manager.get_user_stories()
@@ -94,7 +94,7 @@ class Project:
 
         self.architect = Architect(self)
         self.architect.get_architecture()
-
+        #生成architecture 保存到architecture 表，
         self.developer = Developer(self)
         self.developer.set_up_environment()
         self.technical_writer = TechnicalWriter(self)
@@ -264,12 +264,27 @@ class Project:
         if full_path not in self.files:
             self.files.append(full_path)
 
-        (File.insert(app=self.app, path=path, name=name, full_path=full_path)
-         .on_conflict(
-            conflict_target=[File.app, File.name, File.path],
-            preserve=[],
-            update={'name': name, 'path': path, 'full_path': full_path})
-         .execute())
+        file_exists = File.select().where(
+            (File.app == self.app) &
+            (File.path == path) &
+            (File.name == name)
+        ).exists()
+
+        if file_exists:
+            print("File exists")
+            (File
+                .update(name=name, path=path, full_path=full_path)
+                .where(File.app == self.app, File.name == name, File.path == path)
+                .execute())
+        else:
+            print("File does not exist")
+            File.insert(app=self.app, path=path, name=name, full_path=full_path).execute()            
+        # (File.insert(app=self.app, path=path, name=name, full_path=full_path)
+        #  .on_conflict(
+        #     conflict_target=[File.app, File.name, File.path],
+        #     preserve=[],
+        #     update={'name': name, 'path': path, 'full_path': full_path})
+        #  .execute())
 
         if not self.skip_steps:
             inputs_required = self.find_input_required_lines(data['content'])

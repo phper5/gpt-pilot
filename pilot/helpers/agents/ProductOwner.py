@@ -9,10 +9,12 @@ from utils.files import setup_workspace
 from prompts.prompts import ask_for_app_type, ask_for_main_app_definition, get_additional_info_from_openai, \
     generate_messages_from_description, ask_user, get_prompt
 from const.llm import END_RESPONSE
+from utils.locale import get_translator
 
 PROJECT_DESCRIPTION_STEP = 'project_description'
 USER_STORIES_STEP = 'user_stories'
 USER_TASKS_STEP = 'user_tasks'
+_ = get_translator()
 
 
 class ProductOwner(Agent):
@@ -42,7 +44,7 @@ class ProductOwner(Agent):
         if 'app_type' not in self.project.args:
             self.project.args['app_type'] = ask_for_app_type()
         if 'name' not in self.project.args:
-            question = 'What is the project name?'
+            question = _('What is the project name?')
             print(question, type='ipc')
             self.project.args['name'] = clean_filename(ask_user(self.project, question))
 
@@ -61,7 +63,7 @@ class ProductOwner(Agent):
         high_level_messages = self.ask_clarifying_questions(self.project.main_prompt)
 
         high_level_summary = self.generate_project_summary(high_level_messages)
-
+        #保存到数据库，数据写入project_description ，更新 app的status为project_description
         save_progress(self.project.args['app_id'], self.project.current_step, {
             "prompt": self.project.main_prompt,
             "messages": high_level_messages,
@@ -92,6 +94,7 @@ class ProductOwner(Agent):
                                                            high_level_messages])}, should_log_message=False)
 
     def get_user_stories(self):
+        
         if not self.project.args.get('advanced', False):
             return
 

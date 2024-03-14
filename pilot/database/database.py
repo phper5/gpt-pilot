@@ -458,6 +458,8 @@ def drop_tables():
                 sql = f'DROP TABLE IF EXISTS "{table._meta.table_name}" CASCADE'
             elif DATABASE_TYPE == "sqlite":
                 sql = f'DROP TABLE IF EXISTS "{table._meta.table_name}"'
+            elif DATABASE_TYPE == "mysql":
+                sql = f'DROP TABLE IF EXISTS `{table._meta.table_name}`'
             else:
                 raise ValueError(f"Unsupported DATABASE_TYPE: {DATABASE_TYPE}")
 

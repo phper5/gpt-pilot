@@ -4,12 +4,15 @@ from uuid import uuid4
 
 from database.config import DATABASE_TYPE
 from database.connection.postgres import get_postgres_database
+from database.connection.mysql import get_mysql_database
 from database.connection.sqlite import get_sqlite_database
 
 
 # Establish connection to the database
 if DATABASE_TYPE == "postgres":
     database = get_postgres_database()
+elif DATABASE_TYPE == "mysql":
+    database = get_mysql_database()
 else:
     database = get_sqlite_database()
 

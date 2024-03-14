@@ -18,6 +18,8 @@ from database.database import database_exists, create_database, tables_exist, cr
 
 from utils.settings import settings, loader
 from utils.telemetry import telemetry
+from utils.locale import get_translator
+_ = get_translator()
 
 def init():
     # Check if the "euclid" database exists, if not, create it
@@ -74,7 +76,7 @@ if __name__ == "__main__":
 
             # TODO get checkpoint from database and fill the project with it
             project = Project(args, ipc_client_instance=ipc_client_instance)
-            project.start()
+            project.start()#最后进行coding
             project.finish()
             telemetry.set("end_result", "success")
     except Exception:

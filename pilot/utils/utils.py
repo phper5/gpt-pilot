@@ -34,6 +34,7 @@ def capitalize_first_word_with_underscores(s):
 
 
 def get_prompt(prompt_name, data=None):
+    # 根据名称读取到提示提示的内容。
     if data is None:
         data = {}
 
@@ -42,8 +43,12 @@ def get_prompt(prompt_name, data=None):
     logger.info(f"Getting prompt for {prompt_name}")
 
     # Load the template
-    template = env.get_template(prompt_name)
+    # 先判断在zh文件夹是否有同名的template，如果有则使用zh文件夹下的文件，否则则直接加载
+    zh_template_path = os.path.join(prompts_path,  'zh', prompt_name)
+    if os.path.exists(zh_template_path):
+        prompt_name = env.get_template(os.path.join('zh', prompt_name))
 
+    template = env.get_template(prompt_name)
     # Render the template with the provided data
     output = template.render(data)
 
@@ -51,6 +56,7 @@ def get_prompt(prompt_name, data=None):
 
 
 def get_prompt_components(data):
+    # 读取所有的嗯提示内容到字典中
     # This function reads and renders all prompts inside /prompts/components and returns them in dictionary
 
     # Create an empty dictionary to store the file contents.
