@@ -2,10 +2,11 @@ import json
 import re
 import subprocess
 import uuid
-from utils.style import color_yellow, color_yellow_bold
+from os.path import sep
 
-from database.database import get_saved_development_step, save_development_step, delete_all_subsequent_steps
-from helpers.exceptions.TokenLimitError import TokenLimitError
+from utils.style import color_yellow, color_yellow_bold, color_red_bold
+from database.database import save_development_step
+from helpers.exceptions import TokenLimitError, ApiError
 from utils.function_calling import parse_agent_response, FunctionCallSet
 from utils.llm_connection import create_gpt_chat_completion
 from utils.utils import get_prompt, get_sys_message, capitalize_first_word_with_underscores
@@ -13,6 +14,7 @@ from logger.logger import logger
 from prompts.prompts import ask_user
 from const.llm import END_RESPONSE
 from helpers.cli import running_processes
+from utils.telemetry import telemetry
 
 
 class AgentConvo:
@@ -23,13 +25,14 @@ class AgentConvo:
         agent: An instance of the agent participating in the conversation.
     """
 
-    def __init__(self, agent):
+    def __init__(self, agent, temperature: float = 0.7):
         # [{'role': 'system'|'user'|'assistant', 'content': ''}, ...]
         self.messages: list[dict] = []
         self.branches = {}
         self.log_to_user = True
         self.agent = agent
         self.high_level_step = self.agent.project.current_step
+        self.temperature = temperature
 
         # add system message
         system_message = get_sys_message(self.agent.role, self.agent.project.args)
@@ -54,53 +57,42 @@ class AgentConvo:
 
         # TODO: move this if block (and the other below) to Developer agent - https://github.com/Pythagora-io/gpt-pilot/issues/91#issuecomment-1751964079
         # check if we already have the LLM response saved
-        if self.agent.__class__.__name__ == 'Developer':
+        if hasattr(self.agent, 'save_dev_steps') and self.agent.save_dev_steps:
             self.agent.project.llm_req_num += 1
-        development_step = get_saved_development_step(self.agent.project)
-        if development_step is not None and self.agent.project.skip_steps:
-            # if we do, use it
-            print(color_yellow(f'Restoring development step with id {development_step.id}'))
-            self.agent.project.checkpoints['last_development_step'] = development_step
-            self.agent.project.restore_files(development_step.id)
-            response = development_step.llm_response
-            self.messages = development_step.messages
 
-            if self.agent.project.skip_until_dev_step and str(
-                    development_step.id) == self.agent.project.skip_until_dev_step:
-                self.agent.project.skip_steps = False
-                delete_all_subsequent_steps(self.agent.project)
+        self.agent.project.finish_loading()
 
-                if 'delete_unrelated_steps' in self.agent.project.args and self.agent.project.args[
-                    'delete_unrelated_steps']:
-                    self.agent.project.delete_all_steps_except_current_branch()
-            else:
-                should_log_message = True
+        try:
+            self.replace_files()
+            response = create_gpt_chat_completion(self.messages, self.high_level_step, self.agent.project,
+                                                  function_calls=function_calls, prompt_data=prompt_data,
+                                                  temperature=self.temperature)
+        except TokenLimitError as e:
+            save_development_step(self.agent.project, prompt_path, prompt_data, self.messages, {"text": ""}, str(e))
+            raise e
 
-            if development_step.token_limit_exception_raised:
-                raise TokenLimitError(development_step.token_limit_exception_raised)
-        else:
-            # if we don't, get the response from LLM
-            try:
-                self.agent.project.skip_steps = False  # todo this is quick fix for flag that shows if we fully loaded project, should be implemented properly
-                self.replace_files()
-                response = create_gpt_chat_completion(self.messages, self.high_level_step, self.agent.project,
-                                                      function_calls=function_calls)
-            except TokenLimitError as e:
-                save_development_step(self.agent.project, prompt_path, prompt_data, self.messages, '', str(e))
-                raise e
-
-            # TODO: move this code to Developer agent - https://github.com/Pythagora-io/gpt-pilot/issues/91#issuecomment-1751964079
-            if hasattr(self.agent, 'save_dev_steps') and self.agent.save_dev_steps:
-                save_development_step(self.agent.project, prompt_path, prompt_data, self.messages, response)
+        # TODO: move this code to Developer agent - https://github.com/Pythagora-io/gpt-pilot/issues/91#issuecomment-1751964079
+        if hasattr(self.agent, 'save_dev_steps') and self.agent.save_dev_steps:
+            save_development_step(self.agent.project, prompt_path, prompt_data, self.messages, response)
 
         # TODO handle errors from OpenAI
         # It's complicated because calling functions are expecting different types of responses - string or tuple
         # https://github.com/Pythagora-io/gpt-pilot/issues/165 & #91
-        if response == {}:
+        if response == {} or response is None:
+            # This should never happen since we're raising ApiError in create_gpt_chat_completion
+            # Leaving this in place in case there's a case where this can still happen
             logger.error('Aborting with "OpenAI API error happened"')
-            raise Exception("OpenAI API error happened.")
+            print(color_red_bold('There was an error talking to OpenAI API. Please try again later.'))
+            payload_size_kb = len(json.dumps(self.messages)) // 1000
+            raise ApiError(f"Unknown API error (prompt: {prompt_path}, request size: {payload_size_kb}KB)")
 
-        response = parse_agent_response(response, function_calls)
+        try:
+            response = parse_agent_response(response, function_calls)
+        except (KeyError, json.JSONDecodeError) as err:
+            logger.error("Error while parsing LLM response: {err.__class__.__name__}: {err}")
+            print(color_red_bold(f'There was an error parsing LLM response: \"{err.__class__.__name__}: {err}\". Please try again later.'))
+            raise ApiError(f"Error parsing LLM response: {err.__class__.__name__}: {err}: Response text: {response}") from err
+
         message_content = self.format_message_content(response, function_calls)
 
         # TODO we need to specify the response when there is a function called
@@ -111,6 +103,8 @@ class AgentConvo:
         if should_log_message:
             self.log_message(message_content)
 
+        if self.agent.project.check_ipc():
+            telemetry.output_project_stats()
         return response
 
     def format_message_content(self, response, function_calls):
@@ -188,10 +182,28 @@ class AgentConvo:
         files = self.agent.project.get_all_coded_files()
         for msg in self.messages:
             if msg['role'] == 'user':
-                for file in files:
-                    msg['content'] = self.replace_file_content(msg['content'], f"{file['path']}/{file['name']}", file['content'])
+                new_content = self.replace_files_in_one_message(files, msg["content"])
+                if new_content != msg["content"]:
+                    msg["content"] = new_content
 
-    def escape_specials(self, s):
+    def replace_files_in_one_message(self, files, message):
+        # This needs to EXACTLY match the formatting in `files_list.prompt`
+        replacement_lines = ["\n---START_OF_FILES---"]
+        for file in files:
+            path = f"{file['path']}{sep}{file['name']}"
+            content = file['content']
+            replacement_lines.append(f"**{path}** ({ file['lines_of_code'] } lines of code):\n```\n{content}\n```\n")
+        replacement_lines.append("---END_OF_FILES---\n")
+        replacement = "\n".join(replacement_lines)
+
+        def replace_cb(_m):
+            return replacement
+
+        pattern = r"\n---START_OF_FILES---\n(.*?)\n---END_OF_FILES---\n"
+        return re.sub(pattern, replace_cb, message, flags=re.MULTILINE|re.DOTALL)
+
+    @staticmethod
+    def escape_specials(s):
         s = s.replace("\\", "\\\\")
 
         # List of sequences to preserve
@@ -212,22 +224,6 @@ class AgentConvo:
             s = s.replace('\\\\' + seq[-1], seq)
         return s
 
-    def replace_file_content(self, message, file_path, new_content):
-        pattern = rf'\*\*{re.escape(file_path)}\*\*:\n```\n(.*?)\n```'
-
-        # Escape special characters in new_content for the sake of regex replacement
-        new_content_escaped = self.escape_specials(new_content)
-        file_path_escaped = self.escape_specials(file_path)
-
-        new_section_content = f'**{file_path_escaped}**\n```\n{new_content_escaped}\n```'
-
-        updated_message, num_replacements = re.subn(pattern, new_section_content, message, flags=re.DOTALL)
-
-        if num_replacements == 0:
-            return message
-
-        return updated_message
-
     def convo_length(self):
         return len([msg for msg in self.messages if msg['role'] != 'system'])
 
@@ -241,8 +237,9 @@ class AgentConvo:
         print_msg = capitalize_first_word_with_underscores(self.high_level_step)
         if self.log_to_user:
             if self.agent.project.checkpoints['last_development_step'] is not None:
-                dev_step_msg = f'\nDev step {str(self.agent.project.checkpoints["last_development_step"])}\n'
-                print(color_yellow_bold(dev_step_msg), end='')
+                dev_step_msg = f'\nDev step {str(self.agent.project.checkpoints["last_development_step"]["id"])}\n'
+                if not self.agent.project.check_ipc():
+                    print(color_yellow_bold(dev_step_msg), end='')
                 logger.info(dev_step_msg)
             print(f"\n{content}\n", type='local')
         logger.info(f"{print_msg}: {content}\n")
@@ -275,28 +272,3 @@ class AgentConvo:
             prompt = get_prompt(prompt_path, prompt_data)
             logger.info('\n>>>>>>>>>> User Prompt >>>>>>>>>>\n%s\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>', prompt)
             self.messages.append({"role": "user", "content": prompt})
-
-    def get_additional_info_from_user(self, function_calls: FunctionCallSet = None):
-        """
-        Asks user if he wants to make any changes to last message in conversation.
-
-        Args:
-            function_calls: Optional function calls to be included in the message.
-
-        Returns:
-            The response from the agent OR None if user didn't ask for change.
-        """
-        llm_response = None
-        while True:
-            print(color_yellow(
-                "Please check this message and say what needs to be changed. If everything is ok just press ENTER", ))
-            changes = ask_user(self.agent.project, self.messages[-1]['content'], require_some_input=False)
-            if changes.lower() == '':
-                break
-
-            llm_response = self.send_message('utils/update.prompt',
-                                             {'changes': changes},
-                                             function_calls)
-
-        logger.info('Getting additional info from user done')
-        return llm_response

@@ -6,10 +6,11 @@ from logger.logger import logger
 from database.database import get_app, save_progress, save_app, get_progress_steps
 from utils.utils import should_execute_step, generate_app_data, step_already_finished, clean_filename
 from utils.files import setup_workspace
-from prompts.prompts import ask_for_app_type, ask_for_main_app_definition, get_additional_info_from_openai, \
-    generate_messages_from_description, ask_user, get_prompt
+from prompts.prompts import ask_for_app_type, ask_for_main_app_definition, ask_user
 from const.llm import END_RESPONSE
 from utils.locale import get_translator
+from const.messages import MAX_PROJECT_NAME_LENGTH
+from const.common import EXAMPLE_PROJECT_DESCRIPTION
 
 PROJECT_DESCRIPTION_STEP = 'project_description'
 USER_STORIES_STEP = 'user_stories'
@@ -21,10 +22,10 @@ class ProductOwner(Agent):
     def __init__(self, project):
         super().__init__('product_owner', project)
 
-    def get_project_description(self):
+    def get_project_description(self, spec_writer):
         print(json.dumps({
             "project_stage": "project_description"
-        }), type='info')
+        }), type='info', category='agent:product-owner')
 
         self.project.app = get_app(self.project.args['app_id'], error_if_not_found=False)
 
@@ -41,18 +42,41 @@ class ProductOwner(Agent):
 
         # PROJECT DESCRIPTION
         self.project.current_step = PROJECT_DESCRIPTION_STEP
+        is_example_project = False
+
         if 'app_type' not in self.project.args:
             self.project.args['app_type'] = ask_for_app_type()
         if 'name' not in self.project.args:
-            question = _('What is the project name?')
-            print(question, type='ipc')
-            self.project.args['name'] = clean_filename(ask_user(self.project, question))
+            while True:
+                question = 'What is the project name?'
+                print(question, type='ipc')
+                print('start an example project', type='button')
+                project_name = ask_user(self.project, question)
+                if len(project_name) <= MAX_PROJECT_NAME_LENGTH:
+                    break
+                else:
+                    print(f"Hold your horses cowboy! Please, give project NAME with max {MAX_PROJECT_NAME_LENGTH} characters.")
+
+            if project_name.lower() == 'start an example project':
+                is_example_project = True
+                project_name = 'Example Project'
+
+            self.project.args['name'] = clean_filename(project_name)
 
         self.project.app = save_app(self.project)
 
         self.project.set_root_path(setup_workspace(self.project.args))
 
-        self.project.main_prompt = ask_for_main_app_definition(self.project)
+        if is_example_project:
+            print(EXAMPLE_PROJECT_DESCRIPTION)
+            self.project.main_prompt = EXAMPLE_PROJECT_DESCRIPTION
+        else:
+            print(color_green_bold(
+                "GPT Pilot currently works best for web app projects using Node, Express and MongoDB. "
+                "You can use it with other technologies, but you may run into problems "
+                "(eg. React might not work as expected).\n"
+            ))
+            self.project.main_prompt = ask_for_main_app_definition(self.project)
 
         print(json.dumps({'open_project': {
             #'uri': 'file:///' + self.project.root_path.replace('\\', '/'),
@@ -60,10 +84,9 @@ class ProductOwner(Agent):
             'name': self.project.args['name'],
         }}), type='info')
 
-        high_level_messages = self.ask_clarifying_questions(self.project.main_prompt)
+        high_level_messages = []
+        high_level_summary = spec_writer.create_spec(self.project.main_prompt)
 
-        high_level_summary = self.generate_project_summary(high_level_messages)
-        #保存到数据库，数据写入project_description ，更新 app的status为project_description
         save_progress(self.project.args['app_id'], self.project.current_step, {
             "prompt": self.project.main_prompt,
             "messages": high_level_messages,
@@ -75,23 +98,6 @@ class ProductOwner(Agent):
         self.project.project_description_messages = high_level_messages
         return
         # PROJECT DESCRIPTION END
-
-    def ask_clarifying_questions(self, main_prompt: str):
-        instructions = generate_messages_from_description(main_prompt,
-                                                          self.project.args['app_type'],
-                                                          self.project.args['name'])
-        return get_additional_info_from_openai(self.project, instructions)
-
-    def generate_project_summary(self, high_level_messages: list[dict]):
-        print(color_green_bold('Project Summary:\n'))
-        convo_project_description = AgentConvo(self)
-
-        convo_project_description.messages.append({'role': 'system',
-                                                   'content': get_prompt('components/summary_instructions.prompt')})
-        return convo_project_description.send_message('utils/summary.prompt',
-                                                      {'conversation': '\n'.join(
-                                                          [f"{msg['role']}: {msg['content']}" for msg in
-                                                           high_level_messages])}, should_log_message=False)
 
     def get_user_stories(self):
         
@@ -121,7 +127,6 @@ class ProductOwner(Agent):
         self.project.user_stories = self.convo_user_stories.continuous_conversation('user_stories/specs.prompt', {
             'name': self.project.args['name'],
             'prompt': self.project.project_description,
-            'clarifications': self.project.project_description_messages,
             'app_type': self.project.args['app_type'],
             'END_RESPONSE': END_RESPONSE
         })

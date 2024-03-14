@@ -1,26 +1,19 @@
-{{ files_list }}
-
-Here is a description of changes for a task you're currently working on:
+I need to modify file `{{ file_name }}` that currently looks like this:
 ```
-{{ task_description }}
+{{ file_content }}
 ```
 
-This task is broken down into steps. Please tell me the changes needed to implement the step #{{ step_index }} that is described like this:
+I want you to implement changes described in previous message and show me the COMPLETE NEW VERSION of this file in this format:
+-----------------------format----------------------------
 ```
-{{ step_description }}
+the full contents of the updated file, without skipping over any content
 ```
+------------------------end_of_format---------------------------
 
-Within the file modifications, anything needs to be written by the user, add the comment in the same line as the code that starts with `// INPUT_REQUIRED {input_description}` where `input_description` is a description of what needs to be added here by the user. Just make sure that you put comments only inside files that support comments (e.g. not in JSON files)..
+**IMPORTANT**:If the instructions have comments like `// ..add code here...` or `# placeholder for code`, instead of copying the comment, interpret the instructions and output the relevant code.
 
-**IMPORTANT**
-When you think about in which file should the new code go to, always try to make files as small as possible and put code in more smaller files rather than in one big file. Whenever a file becomes too large (more than 50 lines of code) split it into smaller files.
+**IMPORTANT**: Your reply MUST NOT omit any code in the new implementation or substitute anything with comments like `// .. rest of the code goes here ..` or `# insert existing code here`, because I will overwrite the existing file with the content you provide. Output ONLY the content for this file, without additional explanation, suggestions or notes. Your output MUST start with ``` and MUST end with ``` and include only the complete file contents.
 
-**IMPORTANT**
-When you want to add a comment that tells the user to add the previous implementation at that place, make sure that the comment starts with `[OLD CODE]` and add a description of what old code should be inserted here. For example, `[OLD CODE] Login route`.
+**IMPORTANT**: For hardcoded configuration values that the user needs to change, mark the line that needs user configuration with `INPUT_REQUIRED {config_description}` comment,  where `config_description` is a description of the value that needs to be set by the user. Use appropriate syntax for comments in the file you're saving (for example `// INPUT_REQUIRED {config_description}` in JavaScript). NEVER ask the user to write code or provide implementation, even if the instructions suggest it! If the file type doesn't support comments (eg JSON), don't add any.
 
-{% if 'code_change' in step %}
-{% for file in step['code_change'] %}
-**IMPORTANT**
-Implement changes only for the file `{{ step['code_change']['path'] }}` and no other files.
-{% endfor %}
-{% endif %}
+{{ logs_and_error_handling }}

@@ -8,15 +8,12 @@ from helpers.Project import Project
 test_root = str(Path(__file__).parent.parent.parent / Path("workspace") / Path("gpt-pilot-test"))
 
 def create_project():
+    os.environ["AUTOFIX_FILE_PATHS"] = "false"
     project = Project({
         'app_id': 'test-project',
         'name': 'TestProject',
         'app_type': ''
-    },
-        name='TestProject',
-        architecture=[],
-        user_stories=[]
-    )
+    })
     project.set_root_path(test_root)
     project.app = 'test'
     project.current_step = 'test'
@@ -343,7 +340,7 @@ class TestProject:
 
         # Then assert that update_file with the correct path
         expected_saved_to = str(Path(test_data['saved_to']))
-        mock_update_file.assert_called_once_with(expected_saved_to, 'Hello World!')
+        mock_update_file.assert_called_once_with(expected_saved_to, 'Hello World!', project=project)
 
         # Also assert that File.insert was called with the expected arguments
         # expected_file_data = {'app': project.app, 'path': test_data['path'], 'name': test_data['name'],
@@ -359,11 +356,10 @@ class TestProjectFileLists:
         project.project_description = 'Test Project'
         project.development_plan = [{
             'description': 'Test User Story',
-            'programmatic_goal': 'Test Programmatic Goal',
             'user_review_goal': 'Test User Review Goal',
         }]
 
-        # with directories including common.IGNORE_FOLDERS
+        # with directories including common.IGNORE_PATHS
         src = os.path.join(project.root_path, 'src')
         foo = os.path.join(project.root_path, 'src/foo')
         files_no_folders = os.path.join(foo, 'files_no_folders')

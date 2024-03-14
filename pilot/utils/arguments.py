@@ -5,7 +5,7 @@ import sys
 import uuid
 from getpass import getuser
 from database.database import get_app, get_app_by_user_workspace
-from utils.style import color_green_bold, style_config
+from utils.style import color_green_bold, color_red, style_config
 from utils.utils import should_execute_step
 from const.common import STEPS
 
@@ -47,7 +47,11 @@ def get_arguments():
 
     if 'app_id' in arguments:
         if app is None:
-            app = get_app(arguments['app_id'])
+            try:
+                app = get_app(arguments['app_id'])
+            except ValueError as err:
+                print(color_red(f"Error: {err}"))
+                sys.exit(-1)
 
         arguments['app_type'] = app.app_type
         arguments['name'] = app.name
@@ -60,7 +64,7 @@ def get_arguments():
         print(color_green_bold(f'{app.name} (app_id={arguments["app_id"]})'))
         print(color_green_bold('--------------------------------------------------------------\n'))
 
-    elif '--get-created-apps-with-steps' not in args:
+    elif '--get-created-apps-with-steps' not in args and '--version' not in args:
         arguments['app_id'] = str(uuid.uuid4())
         print(color_green_bold('\n------------------ STARTING NEW PROJECT ----------------------'))
         print("If you wish to continue with this project in future run:")
