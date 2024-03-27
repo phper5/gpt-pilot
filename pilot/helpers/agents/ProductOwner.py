@@ -3,7 +3,7 @@ from utils.style import color_green_bold
 from helpers.AgentConvo import AgentConvo
 from helpers.Agent import Agent
 from logger.logger import logger
-from database.database import get_app, save_progress, save_app, get_progress_steps
+from database.database import get_app, save_progress, save_app, get_progress_steps, get_project,save_project,get_created_project_apps_with_steps
 from utils.utils import should_execute_step, generate_app_data, step_already_finished, clean_filename
 from utils.files import setup_workspace
 from prompts.prompts import ask_for_app_type, ask_for_main_app_definition, ask_user
@@ -11,6 +11,8 @@ from const.llm import END_RESPONSE
 from utils.locale import get_translator
 from const.messages import MAX_PROJECT_NAME_LENGTH
 from const.common import EXAMPLE_PROJECT_DESCRIPTION
+import sys
+import uuid
 
 PROJECT_DESCRIPTION_STEP = 'project_description'
 USER_STORIES_STEP = 'user_stories'
@@ -22,12 +24,84 @@ class ProductOwner(Agent):
     def __init__(self, project):
         super().__init__('product_owner', project)
 
+    def init_from_app(self):
+        self.project.args['app_type'] = self.project.app.app_type
+        self.project.args['name'] = self.project.app.name
+        self.project.args['status'] = self.project.app.status
+        self.project.args['continuing_project'] = True
+
+    def create_project(self,spec_writer):
+        print(json.dumps({
+            "project_stage": "project"
+        }), type='info', category='agent:product-owner')
+        # 试图从app加载project,或者根据输入的project id加载project
+        # 初始化self.project.project  和 self.project.args['project_id']
+        if 'app_id' in self.project.args:
+            self.project.app = get_app(self.project.args['app_id'])
+        else:    
+            self.project.app = None
+
+        if self.project.app is not None:
+            self.project.project = get_project(self.project.app.project_id)
+            #用app进行初始化
+            self.init_from_app()
+            
+        else:
+            if 'project_id' in self.project.args:
+                self.project.project = get_project(self.project.args['project_id'])
+            else:
+                self.project.project = None
+        
+        #没有app_id,project_id,则创建新的project
+        if self.project.project is None:
+            #创建新的project
+            self.project.args['project_id'] = str(uuid.uuid4())
+            print(color_green_bold('\n------------------ STARTING NEW PROJECT ----------------------'))
+            print("If you wish to continue with this project in future run:")
+            print(color_green_bold(f'python {sys.argv[0]} project_id={self.project.args["project_id"]}'))
+            print(color_green_bold('--------------------------------------------------------------\n'))
+
+            if 'project_name' not in self.project.args:
+                while True:
+                    question = 'What is the project name?'
+                    print(question, type='ipc')
+                    print('start an example project', type='button')
+                    project_name = ask_user(self.project, question)
+                    if len(project_name) <= MAX_PROJECT_NAME_LENGTH:
+                        break
+                    else:
+                        print(f"Hold your horses cowboy! Please, give project NAME with max {MAX_PROJECT_NAME_LENGTH} characters.")
+
+                if project_name.lower() == 'start an example project':
+                    is_example_project = True
+                    project_name = 'Example Project'
+
+                self.project.args['project_name'] = clean_filename(project_name)
+            question = '请输入项目的介绍?'
+            project_description = ask_user(self.project, question)
+            self.project.args['description'] = project_description
+            self.project.args['app_type'] = ask_for_app_type()
+            self.project.project = save_project(self.project)
+        else:
+            #用project进行初始化
+            self.project.args['project_id'] = self.project.project.id
+            self.project.args['description'] = self.project.project.description
+            self.project.args['project_name'] = self.project.project.name
+            self.project.args['app_type'] = self.project.project.app_type
+            pass
+        self.project.set_root_path(setup_workspace(self.project.args))
+
+
+
+
     def get_project_description(self, spec_writer):
         print(json.dumps({
-            "project_stage": "project_description"
+            "project_stage": "requirement_description"
         }), type='info', category='agent:product-owner')
 
-        self.project.app = get_app(self.project.args['app_id'], error_if_not_found=False)
+        # self.project.app = get_app(self.project.args['app_id'], error_if_not_found=False)
+        # 已经在create_project处读取
+       
 
         # If this app_id already did this step, just get all data from DB and don't ask user again
         if self.project.app is not None:
@@ -39,33 +113,75 @@ class ProductOwner(Agent):
                 self.project.project_description_messages = step['messages']
                 self.project.main_prompt = step['prompt']
                 return
+        else:
+            if 'app_id' not in self.project.args:
+                app_list = get_created_project_apps_with_steps(self.project.args['project_id'])
+                #列出已经有的，请选择，或者创建
+                # if ipc_client_instance is not None:
+                #     print({ 'db_data': get_created_apps_with_steps() }, type='info')
+                # else:
+                if app_list is not None and len(app_list) > 0 :
+                    print('----------------------------------------------------------------------------------------')
+                    print('app_id                                step                 dev_step  name')
+                    print('----------------------------------------------------------------------------------------')
+                    print('\n'.join(f"{app['id']}: {app['status']:20}      "
+                                    f"{'' if len(app['development_steps']) == 0 else app['development_steps'][-1]['id']:3}"
+                                    f"  {app['name']}" for app in app_list))
+                    question = '请输入您要继续的app_id或者直接输入您的新需求名称'
+                else:
+                    question = '请输入您的需求名称'
+                
+                while True:
+                    # question = 'What is the task name?'
+                    print(question, type='ipc')
+                    print('start an example project', type='button')
+                    project_name = ask_user(self.project, question)
+                    if len(project_name) <= MAX_PROJECT_NAME_LENGTH:
+                        break
+                    else:
+                        print(f"Hold your horses cowboy! Please, give project NAME with max {MAX_PROJECT_NAME_LENGTH} characters.")
+                #判断用户的输入project_name是否在apps的app_id中
+                if app_list is not None and len(app_list) > 0 and project_name in app_list:
+
+                    self.project.args['app_id'] = project_name
+                    self.project.app = get_app(self.project.args['app_id'])
+                    #todo 初始化 app
+                    self.init_from_app()
+                else:
+                    self.project.args['name'] = clean_filename(project_name)
+                self.project.args['app_id'] = str(uuid.uuid4())
+                print(color_green_bold('\n------------------ STARTING NEW REQUIREMENT ----------------------'))
+                print("If you wish to continue with this feature in future run:")
+                print(color_green_bold(f'python {sys.argv[0]} app_id={self.project.args["app_id"]}'))
+                print(color_green_bold('--------------------------------------------------------------\n'))
 
         # PROJECT DESCRIPTION
         self.project.current_step = PROJECT_DESCRIPTION_STEP
         is_example_project = False
 
-        if 'app_type' not in self.project.args:
-            self.project.args['app_type'] = ask_for_app_type()
-        if 'name' not in self.project.args:
-            while True:
-                question = 'What is the project name?'
-                print(question, type='ipc')
-                print('start an example project', type='button')
-                project_name = ask_user(self.project, question)
-                if len(project_name) <= MAX_PROJECT_NAME_LENGTH:
-                    break
-                else:
-                    print(f"Hold your horses cowboy! Please, give project NAME with max {MAX_PROJECT_NAME_LENGTH} characters.")
+        # if 'app_type' not in self.project.args:
+        #     self.project.args['app_type'] = ask_for_app_type()
+        # if 'name' not in self.project.args:
+        #     while True:
+        #         question = 'What is the task name?'
+        #         print(question, type='ipc')
+        #         print('start an example project', type='button')
+        #         project_name = ask_user(self.project, question)
+        #         if len(project_name) <= MAX_PROJECT_NAME_LENGTH:
+        #             break
+        #         else:
+        #             print(f"Hold your horses cowboy! Please, give project NAME with max {MAX_PROJECT_NAME_LENGTH} characters.")
 
-            if project_name.lower() == 'start an example project':
-                is_example_project = True
-                project_name = 'Example Project'
+        #     if project_name.lower() == 'start an example task':
+        #         is_example_project = True
+        #         project_name = 'Example Task'
 
-            self.project.args['name'] = clean_filename(project_name)
+        #     self.project.args['name'] = clean_filename(project_name)
 
         self.project.app = save_app(self.project)
-
-        self.project.set_root_path(setup_workspace(self.project.args))
+        self.init_from_app()
+        #应该移动到create_project
+        # self.project.set_root_path(setup_workspace(self.project.args))
 
         if is_example_project:
             print(EXAMPLE_PROJECT_DESCRIPTION)
@@ -100,7 +216,7 @@ class ProductOwner(Agent):
         # PROJECT DESCRIPTION END
 
     def get_user_stories(self):
-        
+        return ;
         if not self.project.args.get('advanced', False):
             return
 

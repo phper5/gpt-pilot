@@ -59,16 +59,25 @@ GPT Pilot is the core technology for the [Pythagora VS Code extension](https://b
 ---
 
 <!-- TOC -->
-* [🔌 Requirements](#-requirements)
-* [🚦How to start using gpt-pilot?](#how-to-start-using-gpt-pilot)
-* [🔎 Examples](#-examples)
-* [🐳 How to start gpt-pilot in docker?](#-how-to-start-gpt-pilot-in-docker)
-* [🧑‍💻️ CLI arguments](#-cli-arguments)
-* [🏗 How GPT Pilot works?](#-how-gpt-pilot-works)
-* [🕴How's GPT Pilot different from _Smol developer_ and _GPT engineer_?](#hows-gpt-pilot-different-from-smol-developer-and-gpt-engineer)
-* [🍻 Contributing](#-contributing)
-* [🔗 Connect with us](#-connect-with-us)
-* [🌟 Star history](#-star-history)
+- [🧑‍✈️ GPT PILOT 🧑‍✈️](#️-gpt-pilot-️)
+    - [GPT Pilot doesn't just generate code, it builds apps!](#gpt-pilot-doesnt-just-generate-code-it-builds-apps)
+    - [**👉 Examples of apps written by GPT Pilot 👈**](#-examples-of-apps-written-by-gpt-pilot-)
+- [🔌 Requirements](#-requirements)
+- [🚦How to start using gpt-pilot?](#how-to-start-using-gpt-pilot)
+- [🔎 Examples](#-examples)
+  - [🐳 How to start gpt-pilot in docker?](#-how-to-start-gpt-pilot-in-docker)
+- [🧑‍💻️ CLI arguments](#️-cli-arguments)
+  - [`--get-created-apps-with-steps`](#--get-created-apps-with-steps)
+  - [`app_id`](#app_id)
+  - [`step`](#step)
+  - [`skip_until_dev_step`](#skip_until_dev_step)
+  - [`theme`](#theme)
+- [🏗 How GPT Pilot works?](#-how-gpt-pilot-works)
+- [🕴How's GPT Pilot different from _Smol developer_ and _GPT engineer_?](#hows-gpt-pilot-different-from-smol-developer-and-gpt-engineer)
+- [🍻 Contributing](#-contributing)
+  - [🖥 Development](#-development)
+  - [📊 Telemetry](#-telemetry)
+- [🔗 Connect with us](#-connect-with-us)
 <!-- TOC -->
 
 ---

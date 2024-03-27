@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from database.database import save_user_app
+from database.database import save_user_project
 
 
 def get_parent_folder(folder_name):
@@ -22,13 +22,13 @@ def setup_workspace(args) -> str:
         project_path = workspace
     else:
         root = args.get('root') or get_parent_folder('pilot')
-        name = args.get('name', 'default_project_name')
+        name = args.get('project_name', 'default_project_name')
         project_path = create_directory(os.path.join(root, 'workspace'), name)
 
     try:
-        save_user_app(args.get('user_id'), args.get('app_id'), project_path)
+        save_user_project(args.get('user_id'), args.get('project_id'), project_path)
     except Exception as e:
-        print(f'Error saving user app: {str(e)}')
+        print(f'Error saving user project: {str(e)}')
 
     print(os.path.basename(project_path), type='project_folder_name')
     return project_path

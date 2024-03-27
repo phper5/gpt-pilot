@@ -430,6 +430,7 @@ def stream_gpt_completion(data, req_type, project):
 
     telemetry.set("model", model)
     token_count = get_tokens_in_messages(data['messages'])
+    print("token_count :" + str(token_count))
     request_start_time = time.time()
 
     response = requests.post(

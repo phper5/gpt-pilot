@@ -183,7 +183,7 @@ class Project:
         """
 
         telemetry.start()
-        telemetry.set("app_id", self.args["app_id"])
+        # telemetry.set("app_id", self.args["app_id"])
 
         if not test_api_access(self):
             return False
@@ -195,7 +195,9 @@ class Project:
         self.spec_writer = SpecWriter(self)
 
         print('', type='verbose', category='agent:product-owner')
+        self.project_manager.create_project(self.spec_writer)
         self.project_manager.get_project_description(self.spec_writer)
+        
         self.project_manager.get_user_stories()
         # self.user_tasks = self.project_manager.get_user_tasks()
 

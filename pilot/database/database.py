@@ -14,6 +14,7 @@ from logger.logger import logger
 from database.models.components.base_models import database
 from database.models.user import User
 from database.models.app import App
+from database.models.project import Project
 from database.models.project_description import ProjectDescription
 from database.models.user_stories import UserStories
 from database.models.user_tasks import UserTasks
@@ -25,6 +26,7 @@ from database.models.development import Development
 from database.models.file_snapshot import FileSnapshot
 from database.models.command_runs import CommandRuns
 from database.models.user_apps import UserApps
+from database.models.user_projects import UserProjects
 from database.models.user_inputs import UserInputs
 from database.models.files import File
 from database.models.feature import Feature
@@ -52,6 +54,61 @@ TABLES = [
 def get_created_apps():
     return [model_to_dict(app) for app in App.select().where((App.name.is_null(False)) & (App.status.is_null(False)))]
 
+def get_created_project_apps(project_id):
+    return [model_to_dict(app) for app in App.select().where((App.name.is_null(False)) & (App.project_id == project_id) &  (App.status.is_null(False)))]
+
+def get_created_project_apps_with_steps(project_id):
+    apps = get_created_project_apps(project_id)
+    for app in apps:
+        app['id'] = str(app['id'])
+        # app['name'] = str(app['name'])
+        app['steps'] = [step for step in STEPS[:STEPS.index(app['status']) + 1]] if app['status'] is not None else []
+        app['development_steps'] = get_all_app_development_steps(app['id'], loading_steps_only=True)
+
+        task_counter = 1
+        troubleshooting_counter = 1
+        feature_counter = 1
+        feature_end_counter = 1
+        new_development_steps = []
+
+        for dev_step in app['development_steps']:
+            # Filter out unwanted keys first
+            filtered_step = {k: v for k, v in dev_step.items() if k in {'id', 'prompt_path'}}
+
+            if 'breakdown' in filtered_step['prompt_path']:
+                filtered_step['name'] = f"Task {task_counter}"
+                task_counter += 1
+                # Reset troubleshooting counter on finding 'breakdown'
+                troubleshooting_counter = 1
+
+            elif 'iteration' in filtered_step['prompt_path']:
+                filtered_step['name'] = f"Troubleshooting {troubleshooting_counter}"
+                troubleshooting_counter += 1
+
+            elif 'feature_plan' in filtered_step['prompt_path']:
+                filtered_step['name'] = f"Feature {feature_counter}"
+                feature_counter += 1
+                # Reset task and troubleshooting counters on finding 'feature_plan'
+                task_counter = 1
+                troubleshooting_counter = 1
+
+            elif 'feature_summary' in filtered_step['prompt_path']:
+                filtered_step['name'] = f"Feature {feature_end_counter} end"
+                feature_end_counter += 1
+
+            # Update the dev_step in the list
+            new_development_steps.append(filtered_step)
+
+        last_step = get_last_development_step(app['id'])
+        if last_step:
+            new_development_steps.append({
+                'id': last_step['id'],
+                'prompt_path': last_step['prompt_path'],
+                'name': 'Latest Step',
+            })
+        app['development_steps'] = new_development_steps
+
+    return apps
 
 def get_created_apps_with_steps():
     apps = get_created_apps()
@@ -173,6 +230,42 @@ def get_user(user_id=None, email=None):
     except DoesNotExist:
         raise ValueError("No user found with provided id or email")
 
+def save_project(project):
+    args = project.args
+    project_step = getattr(project, "current_step", None)
+
+    try:
+        project = project.project
+        if project is None:
+            project = Project.get(Project.id == args['project_id'])
+        for key, value in args.items():
+            if key != 'project_id' and value is not None:
+                setattr(project, key, value)
+
+        project.step = project_step
+        project.save()
+    except DoesNotExist:
+        if args.get('user_id') is not None:
+            try:
+                user = get_user(user_id=args['user_id'])
+            except ValueError:
+                user = save_user(args['user_id'], args['email'], args['password'])
+                args['user_id'] = user.id
+                args['email'] = user.email
+        else:
+            user = None
+
+        project = Project.create(
+            id=args['project_id'],
+            user=user,
+            # app_type=args.get('app_type'),
+            name=args.get('project_name'),
+            step=project_step,
+            app_type = args.get('app_type'),
+            description = args.get('description')
+        )
+
+    return project
 
 def save_app(project):
     args = project.args
@@ -202,6 +295,7 @@ def save_app(project):
         app = App.create(
             id=args['app_id'],
             user=user,
+            project_id=args['project_id'],
             app_type=args.get('app_type'),
             name=args.get('name'),
             status=app_status
@@ -219,6 +313,16 @@ def save_user_app(user_id, app_id, workspace):
         user_app = UserApps.create(user=user_id, app=app_id, workspace=workspace)
 
     return user_app
+
+def save_user_project(user_id, project_id, workspace):
+    try:
+        user_project = UserProjects.get((UserProjects.user == user_id) & (UserProjects.project == project_id))
+        user_project.workspace = workspace
+        user_project.save()
+    except DoesNotExist:
+        user_project = UserProjects.create(user=user_id, project=project_id, workspace=workspace)
+
+    return user_project
 
 
 def save_progress(app_id, step, data):
@@ -261,6 +365,14 @@ def get_app(app_id, error_if_not_found=True):
     except DoesNotExist:
         if error_if_not_found:
             raise ValueError(f"No app with id: {app_id}; use python main.py --get-created-apps-with-steps to see created apps")
+        return None
+def get_project(project_id, error_if_not_found=True):
+    try:
+        project = Project.get(Project.id == project_id)
+        return project
+    except DoesNotExist:
+        if error_if_not_found:
+            raise ValueError(f"No project with id: {project_id}")
         return None
 
 

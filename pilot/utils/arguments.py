@@ -4,7 +4,7 @@ import re
 import sys
 import uuid
 from getpass import getuser
-from database.database import get_app, get_app_by_user_workspace
+from database.database import get_app, get_app_by_user_workspace,get_project
 from utils.style import color_green_bold, color_red, style_config
 from utils.utils import should_execute_step
 from const.common import STEPS
@@ -42,8 +42,15 @@ def get_arguments():
         if app is not None:
             arguments['app_id'] = str(app.id)
             arguments['continuing_project'] = True
+            project = get_project(app.project_id)
+            if project is not None:
+                arguments['project_id'] = str(project.id)
     else:
         arguments['workspace'] = None
+
+    # if 'project_id' in arguments:
+    #     arguments['project_id'] = str(arguments['project_id'])
+
 
     if 'app_id' in arguments:
         if app is None:
@@ -52,11 +59,13 @@ def get_arguments():
             except ValueError as err:
                 print(color_red(f"Error: {err}"))
                 sys.exit(-1)
-
-        arguments['app_type'] = app.app_type
-        arguments['name'] = app.name
-        arguments['status'] = app.status
-        arguments['continuing_project'] = True
+        project = get_project(app.project_id)
+        arguments['project_id'] = str(project.id)
+        #取消app 和 project的初始化，统一在后面初始。
+        # arguments['app_type'] = app.app_type
+        # arguments['name'] = project.name
+        # arguments['status'] = app.status
+        # arguments['continuing_project'] = True
         if 'step' not in arguments or ('step' in arguments and not should_execute_step(arguments['step'], app.status)):
             arguments['step'] = 'finished' if app.status == 'finished' else STEPS[STEPS.index(app.status) + 1]
 
@@ -64,12 +73,14 @@ def get_arguments():
         print(color_green_bold(f'{app.name} (app_id={arguments["app_id"]})'))
         print(color_green_bold('--------------------------------------------------------------\n'))
 
-    elif '--get-created-apps-with-steps' not in args and '--version' not in args:
-        arguments['app_id'] = str(uuid.uuid4())
-        print(color_green_bold('\n------------------ STARTING NEW PROJECT ----------------------'))
-        print("If you wish to continue with this project in future run:")
-        print(color_green_bold(f'python {sys.argv[0]} app_id={arguments["app_id"]}'))
-        print(color_green_bold('--------------------------------------------------------------\n'))
+    #取消创建，统一在后面创建
+    # elif '--get-created-apps-with-steps' not in args and '--version' not in args:
+    #     if 'project_id' not in arguments:
+    #         arguments['project_id'] = str(uuid.uuid4())
+    #     print(color_green_bold('\n------------------ STARTING NEW PROJECT ----------------------'))
+    #     print("If you wish to continue with this project in future run:")
+    #     print(color_green_bold(f'python {sys.argv[0]} project_id={arguments["project_id"]}'))
+    #     print(color_green_bold('--------------------------------------------------------------\n'))
 
     if 'email' not in arguments:
         arguments['email'] = get_email()

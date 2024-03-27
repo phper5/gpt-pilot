@@ -24,7 +24,7 @@ class TechLead(Agent):
         self.convo_development_plan = AgentConvo(self)
 
         # If this app_id already did this step, just get all data from DB and don't ask user again
-        step = get_progress_steps(self.project.args['app_id'], DEVELOPMENT_PLANNING_STEP)
+        step = None #get_progress_steps(self.project.args['app_id'], DEVELOPMENT_PLANNING_STEP)
         if step and not should_execute_step(self.project.args['step'], DEVELOPMENT_PLANNING_STEP):
             step_already_finished(self.project.args, step)
             self.project.development_plan = step['development_plan']
